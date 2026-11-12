@@ -1,0 +1,15 @@
+{
+  "name": "Zemědělská společnost Kosova Hora a.s.",
+  "short_name": "Kosova Hora",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f2",
+  "theme_color": "#173d2a",
+  "icons": [
+    {
+      "src": "assets/logo.jpg",
+      "sizes": "any",
+      "type": "image/jpeg"
+    }
+  ]
+}

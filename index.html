@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#173d2a"><meta name="description" content="Evidence pozemků Zemědělské společnosti Kosova Hora a.s.">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="assets/logo.jpg">
+<title>Zemědělská společnost Kosova Hora a.s.</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--green:#17452e;--lime:#a8c943;--bg:#f3f6f2;--line:#dce5dc}*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:#17251c}
+header{background:var(--green);color:white;padding:10px 15px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px #0002}
+header img{width:58px;height:58px;object-fit:contain;background:white;border-radius:8px}
+header strong{font-size:16px;line-height:1.25}header small{display:block;color:#d8e9dc;margin-top:4px}
+main{max-width:1200px;margin:auto;padding:12px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+button,.filebtn{border:0;border-radius:8px;padding:11px 14px;background:var(--green);color:white;font-weight:600;font-size:14px;cursor:pointer}
+button.secondary,.filebtn.secondary{background:#e2ebe3;color:#173d2a}button.danger{background:#a53636}
+#map{height:48vh;min-height:300px;border-radius:12px;border:1px solid var(--line);z-index:1}
+.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}
+.panel h2{font-size:18px;margin:0 0 10px}.tablewrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:530px}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;font-size:14px}th{background:#edf3ed;color:#244b33}
+form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}label{font-size:13px;font-weight:600}input,textarea{width:100%;padding:10px;border:1px solid #bdcbbf;border-radius:7px;margin-top:4px;font:inherit}textarea{grid-column:1/-1;min-height:65px}.wide{grid-column:1/-1}
+#status{font-size:13px;color:#53665a;margin:8px 0}.empty{text-align:center;color:#66766a;padding:18px}
+@media(max-width:600px){header strong{font-size:14px}#map{height:43vh;min-height:270px}form{grid-template-columns:1fr}.wide,textarea{grid-column:1}main{padding:9px}}
+</style></head>
+<body>
+<header><img src="assets/logo.jpg" alt="Logo společnosti"><div><strong>Zemědělská společnost<br>Kosova Hora a.s.</strong><small>Evidence zemědělských pozemků</small></div></header>
+<main>
+<div class="toolbar">
+<button id="add">＋ Přidat pozemek</button><button class="secondary" id="export">Exportovat zálohu</button>
+<label class="filebtn secondary">Importovat zálohu<input id="import" type="file" accept=".json,application/json" hidden></label>
+<button class="secondary" id="locate">Moje poloha</button>
+</div>
+<div id="map"></div><div id="status">Mapa OpenStreetMap. Hranice LPIS zatím nejsou automaticky načtené; pozemky lze přidávat ručně.</div>
+<section class="panel" id="editor" hidden>
+<h2 id="formTitle">Nový pozemek</h2>
+<form id="fieldForm">
+<label>Číslo bloku<input name="block" required placeholder="Např. 60+61"></label>
+<label>Název pozemku<input name="name" required placeholder="Např. Nový pole"></label>
+<label>Výměra (ha)<input name="area" type="number" min="0" step="0.01" placeholder="0,00"></label>
+<label>Plodina<input name="crop" placeholder="Např. pšenice"></label>
+<label class="wide">Poznámka<textarea name="notes" placeholder="Poznámky k pozemku"></textarea></label>
+<div class="wide toolbar"><button type="submit">Uložit pozemek</button><button type="button" class="secondary" id="cancel">Zrušit</button></div>
+</form></section>
+<section class="panel"><h2>Přehled pozemků <span id="count"></span></h2><div class="tablewrap"><table><thead><tr><th>Číslo bloku</th><th>Pozemek</th><th>Výměra (ha)</th><th>Plodina</th><th>Akce</th></tr></thead><tbody id="rows"></tbody></table></div><div id="total" style="font-weight:bold;text-align:right;padding:12px 4px">Celkem: 0,00 ha</div></section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([49.65,14.47],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+let fields=JSON.parse(localStorage.getItem('kosovaFields')||'[]'),markers={},editing=null,adding=false;
+const $=s=>document.querySelector(s), form=$('#fieldForm');
+function save(){localStorage.setItem('kosovaFields',JSON.stringify(fields));render()}
+function fmt(n){return (Number(n)||0).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function render(){
+ Object.values(markers).forEach(m=>map.removeLayer(m));markers={};
+ fields.forEach(f=>{if(f.lat&&f.lng){let m=L.marker([f.lat,f.lng]).addTo(map).bindPopup(`<b>${esc(f.block)} – ${esc(f.name)}</b><br>${fmt(f.area)} ha`);markers[f.id]=m}});
+ $('#rows').innerHTML=fields.length?fields.map(f=>`<tr><td>${esc(f.block)}</td><td>${esc(f.name)}</td><td>${fmt(f.area)}</td><td>${esc(f.crop||'')}</td><td><button class="secondary" onclick="editField('${f.id}')">Upravit</button> <button class="danger" onclick="deleteField('${f.id}')">Smazat</button>${f.lat?'':' <button class="secondary" onclick="placeField(\\''+f.id+'\\')">Umístit do mapy</button>'}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">Zatím tu nejsou žádné pozemky. Přidej první pozemek.</td></tr>';
+ $('#count').textContent=`(${fields.length})`;$('#total').textContent='Celkem: '+fmt(fields.reduce((s,f)=>s+(Number(f.area)||0),0))+' ha';
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function openForm(f){editing=f?.id||null;form.reset();if(f)Object.keys(f).forEach(k=>{if(form.elements[k])form.elements[k].value=f[k]??''});$('#formTitle').textContent=f?'Upravit pozemek':'Nový pozemek';$('#editor').hidden=false;$('#editor').scrollIntoView({behavior:'smooth'})}
+$('#add').onclick=()=>openForm();$('#cancel').onclick=()=>{$('#editor').hidden=true;adding=false};
+form.onsubmit=e=>{e.preventDefault();let d=Object.fromEntries(new FormData(form));let old=fields.find(f=>f.id===editing);let f={...(old||{}),...d,area:Number(d.area)||0,id:editing||String(Date.now())};if(!old)fields.push(f);else fields=fields.map(x=>x.id===editing?f:x);save();$('#editor').hidden=true};
+window.editField=id=>openForm(fields.find(f=>f.id===id));
+window.deleteField=id=>{if(confirm('Opravdu smazat tento pozemek?')){fields=fields.filter(f=>f.id!==id);save()}};
+window.placeField=id=>{adding=id;$('#status').textContent='Klepni do mapy na místo, kam chceš pozemek umístit.';map.once('click',e=>{let f=fields.find(x=>x.id===adding);if(f){f.lat=e.latlng.lat;f.lng=e.latlng.lng;save()}adding=false;$('#status').textContent='Pozemek byl umístěn do mapy.'})};
+$('#export').onclick=()=>{let blob=new Blob([JSON.stringify(fields,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='poz emky-kosova-hora.json'.replace(' ','');a.click();URL.revokeObjectURL(a.href)};
+$('#import').onchange=async e=>{try{let data=JSON.parse(await e.target.files[0].text());if(!Array.isArray(data))throw Error();fields=data;save();$('#status').textContent='Záloha byla načtena.'}catch{$('#status').textContent='Soubor se nepodařilo načíst – zkontroluj zálohu.'}e.target.value=''};
+$('#locate').onclick=()=>map.locate({setView:true,maxZoom:16});
+render();
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+</script></body></html>
